@@ -1,0 +1,124 @@
+
+
+#include <SD.h>
+#include<SPI.h>
+#include <Adafruit_GPS.h>
+#include <SoftwareSerial.h>
+#include<TimerOne.h>
+
+SoftwareSerial mySerial(7, 6);
+Adafruit_GPS GPS(&mySerial); 
+
+#define servoPin 3
+
+String NMEA1 = "q";
+String NMEA2 = "q";
+char c;
+int chipSelect = 4;
+File mySensorData;
+boolean isActive = false;
+
+void setup()
+{
+	Serial.begin(9600);
+	GPS.begin(9600);
+
+	delay(100);
+
+	GPS.sendCommand("$PGCMD,33,0*6D");
+	GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCGGA);
+	GPS.sendCommand(PMTK_SET_NMEA_UPDATE_1HZ);
+
+	delay(1000);
+
+	pinMode(3, INPUT);
+	pinMode(10, OUTPUT);
+
+	SD.begin(chipSelect);
+
+	if (SD.exists("NMEA.txt")) { SD.remove("NMEA.txt"); }
+	if (SD.exists("GPSData.txt")) { SD.remove("GPSData.txt"); }
+
+	Timer1.initialize(10000);
+	Timer1.attachInterrupt(checkServo);
+}
+
+void loop()
+{
+	if (isActive)
+	{
+		Timer1.stop();
+
+		delay(100);
+		isActive = false;
+
+		readGPS();
+		Serial.println("Servo is ON");
+
+		Serial.println("GPS ON");
+		mySensorData = SD.open("NMEA.txt", FILE_WRITE); //Open file on SD card for writing
+		mySensorData.println(NMEA1); //Write first NMEA to SD card
+		mySensorData.println(NMEA2); //Write Second NMEA to SD card
+		mySensorData.close();  //Close the file
+
+		mySensorData = SD.open("GPSData.txt", FILE_WRITE);
+		mySensorData.print(GPS.latitude, 4); //Write measured latitude to file
+		mySensorData.print(GPS.lat); //Which hemisphere N or S
+		mySensorData.print(",");
+		mySensorData.print(GPS.longitude, 4); //Write measured longitude to file
+		mySensorData.print(GPS.lon); //Which Hemisphere E or W
+		mySensorData.print(",");
+		mySensorData.println(GPS.altitude);
+		mySensorData.close();
+		
+		delay(100);
+		
+		Timer1.start();
+	}
+}
+
+void checkServo()
+{
+	unsigned long highTime = pulseIn(servoPin, HIGH);
+	unsigned long lowTime = pulseIn(servoPin, LOW);
+	unsigned long cycleTime = highTime + lowTime;
+	float dutyCycle = (float)highTime / float(cycleTime);
+	dutyCycle *= 100;
+
+	Serial.print("Duty Cycle = ");
+	Serial.println(dutyCycle);
+
+	if (dutyCycle > 5)
+	{
+		isActive = true;
+	}
+}
+
+void readGPS()
+{
+	clearGPS();
+	while (!GPS.newNMEAreceived()) { c = GPS.read(); }
+	GPS.parse(GPS.lastNMEA());
+	NMEA1 = GPS.lastNMEA();
+	while (!GPS.newNMEAreceived()) { c = GPS.read(); }
+	GPS.parse(GPS.lastNMEA());
+	NMEA2 = GPS.lastNMEA();
+
+	Serial.println(NMEA1);
+	Serial.println(NMEA2);
+}
+
+void clearGPS()
+{
+	while (!GPS.newNMEAreceived()) { c = GPS.read(); }
+
+	GPS.parse(GPS.lastNMEA()); //Parse that last good NMEA sentence
+
+	while (!GPS.newNMEAreceived()) { c = GPS.read(); }
+
+	GPS.parse(GPS.lastNMEA()); //Parse that last good NMEA sentence
+
+	while (!GPS.newNMEAreceived()) { c = GPS.read(); }
+
+	GPS.parse(GPS.lastNMEA());
+}
